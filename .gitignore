@@ -1,0 +1,21 @@
+.env
+trigger_pipeline.py
+embed_and_match_demo.py
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Model Cache
+model_cache/
+src/model_cache/
+embed_and_match_demo.py
