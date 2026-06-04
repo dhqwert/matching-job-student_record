@@ -32,7 +32,6 @@ logger = logging.getLogger('ai_service')
 # ── Import config FIRST (sets HF_TOKEN env vars) ────────────────────────────
 from config import BGE_MODEL_NAME, MODEL_CACHE_DIR
 from model_loader import load_bge
-import extraction_worker
 import job_embedding_worker
 import matching_worker
 import student_embedding_worker
@@ -53,14 +52,6 @@ def main():
 
     logger.info('[Startup] ✓ Models loaded. Starting workers...')
 
-    # ── Start Job Extraction worker in background thread ─────────────────────
-    extract_thread = threading.Thread(
-        target=extraction_worker.run,
-        name='ExtractionWorker',
-        daemon=True,
-    )
-    extract_thread.start()
-    logger.info('[Startup] ExtractionWorker thread started.')
 
     # ── Start Job embedding worker in background thread ──────────────────────
     embed_thread = threading.Thread(
