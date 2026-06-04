@@ -91,10 +91,11 @@ def fetch_student(conn, student_id: str) -> dict | None:
     return dict(row)
 
 
-def fetch_candidate_jobs(conn, filters: dict) -> list[dict]:
+def fetch_candidate_jobs(conn, filters: dict, student_major_vec_str: str = None, limit: int = 200) -> list[dict]:
     """
     Fetch jobs có professional_embedding.
     Áp dụng hard SQL filter nếu được cung cấp trong filters.
+    Sử dụng pgvector để lấy top 200 jobs có major_embedding gần nhất nếu có student_major_vec_str.
     """
     conditions = ["status = 'DONE'", "professional_embedding IS NOT NULL"]
     params = []
@@ -144,6 +145,16 @@ def fetch_candidate_jobs(conn, filters: dict) -> list[dict]:
         params.extend([like_str, like_str])
 
     where = ' AND '.join(conditions)
+    
+    order_by_clause = ""
+    if student_major_vec_str:
+        # Use pgvector cosine distance operator <=> for ANN search
+        order_by_clause = "ORDER BY major_embedding <=> %s::vector"
+        params.append(student_major_vec_str)
+    else:
+        # Fallback if student doesn't have major_embedding: order by latest
+        order_by_clause = "ORDER BY created_at DESC"
+        
     query = f"""
         SELECT id,
                job_title,
@@ -158,6 +169,8 @@ def fetch_candidate_jobs(conn, filters: dict) -> list[dict]:
                source_metadata->>'original_url'     AS source_url
           FROM job_postings
          WHERE {where}
+         {order_by_clause}
+         LIMIT {limit}
     """
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     cur.execute(query, params)
@@ -229,10 +242,11 @@ def run_matching(payload: dict):
             logger.warning(f'[MatchingWorker] Invalid embedding for student {student_id}')
             return
 
-        student_major_vec = parse_vector(student.get('major_embedding_str'))
+        student_major_vec_str = student.get('major_embedding_str')
+        student_major_vec = parse_vector(student_major_vec_str)
 
-        # 2. Fetch candidate jobs (with optional hard filters)
-        jobs = fetch_candidate_jobs(conn, filters)
+        # 2. Fetch candidate jobs (with optional hard filters and pgvector fast retrieval)
+        jobs = fetch_candidate_jobs(conn, filters, student_major_vec_str, limit=200)
         logger.info(f'[MatchingWorker] Student {student_id}: {len(jobs)} candidate jobs after filtering')
 
         if not jobs:
