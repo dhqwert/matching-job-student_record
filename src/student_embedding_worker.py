@@ -10,7 +10,8 @@ import json
 import logging
 import pika
 
-from config import RABBITMQ_CONN, STUDENT_EMBEDDING_QUEUE
+import requests
+from config import RABBITMQ_CONN, STUDENT_EMBEDDING_QUEUE, BACKEND_API_URL, AI_API_KEY
 from db import get_connection
 
 logger = logging.getLogger(__name__)
@@ -62,32 +63,45 @@ import re
 
 def process_message(bge_model, payload: dict):
     student_code = payload.get('student_code')
-    text_payload = payload.get('text_payload')
 
     if not student_code:
         logger.warning('[StudentEmbeddingWorker] Missing student_code — skipping')
         return
 
-    if not text_payload:
-        logger.warning(f'[StudentEmbeddingWorker] Empty text_payload for student {student_code} — skipping embedding')
+    # Fetch clean profile from Backend API
+    try:
+        url = f"{BACKEND_API_URL}/ai/student-records/{student_code}"
+        headers = {}
+        if AI_API_KEY:
+            headers['x-api-key'] = AI_API_KEY
+            
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json().get('data', {})
+        career_profile = data.get('career_profile', {})
+    except Exception as e:
+        logger.error(f"[StudentEmbeddingWorker] Failed to fetch profile for {student_code}: {e}")
         return
 
-    embedding = generate_embedding(bge_model, text_payload)
-    
-    # Lấy major_text từ text_payload
-    major_text = "Không xác định"
-    m = re.search(r'Chuyên ngành:\s*(.*?)(?=\n|$)', text_payload)
-    if m:
-        major_text = m.group(1).strip()
-        
+    # Extract major text and professional text
+    major_list = career_profile.get('major', [])
+    major_text = ", ".join(major_list) if major_list else "Không xác định"
+
+    skill_list = career_profile.get('skill', [])
+    exp_list = career_profile.get('experience', [])
+    prof_text = ", ".join(skill_list) + " " + " ".join(exp_list)
+    if not prof_text.strip():
+        prof_text = "Chưa có thông tin kỹ năng và kinh nghiệm"
+
     major_embedding = generate_embedding(bge_model, major_text)
+    embedding = generate_embedding(bge_model, prof_text)
 
     if embedding is None:
         logger.warning(f'[StudentEmbeddingWorker] Failed to generate embedding for student {student_code}')
         return
 
     save_student_embedding_to_db(student_code, embedding, major_embedding)
-    logger.info(f'[StudentEmbeddingWorker] ✓ Student {student_code} → embedded ({len(embedding)}-dim)')
+    logger.info(f'[StudentEmbeddingWorker] ✓ Student {student_code} → embedded (Prof: {len(embedding)}-dim, Major: {len(major_embedding)}-dim)')
 
 
 def run(bge_model):

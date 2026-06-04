@@ -32,11 +32,15 @@ import logging
 import numpy as np
 import pika
 import psycopg2.extras
+import redis
 
-from config import RABBITMQ_CONN, MATCH_REQUEST_QUEUE
+from config import RABBITMQ_CONN, MATCH_REQUEST_QUEUE, REDIS_CONN
 from db import get_connection
 
 logger = logging.getLogger(__name__)
+
+# Initialize Redis client
+redis_client = redis.from_url(REDIS_CONN)
 
 MODEL_VERSION = 'v2-bge-m3'
 
@@ -87,31 +91,57 @@ def fetch_student(conn, student_id: str) -> dict | None:
     return dict(row)
 
 
-def fetch_candidate_jobs(conn, gender_filter: str | None, salary_min_filter: int | None) -> list[dict]:
+def fetch_candidate_jobs(conn, filters: dict) -> list[dict]:
     """
     Fetch jobs có professional_embedding.
-    Áp dụng hard SQL filter nếu được cung cấp:
-      - gender: job phải là ANY hoặc khớp với gender_filter
-      - salary_min: job phải có salary_max >= salary_min_filter (hoặc is_negotiable)
-    Location được trả kèm trong kết quả nhưng KHÔNG tính vào similarity.
+    Áp dụng hard SQL filter nếu được cung cấp trong filters.
     """
     conditions = ["status = 'DONE'", "professional_embedding IS NOT NULL"]
     params = []
 
+    gender_filter = filters.get('gender')
     if gender_filter and gender_filter in ('MALE', 'FEMALE'):
         conditions.append(
             "(basic_info->>'gender' = 'ANY' OR basic_info->>'gender' = %s)"
         )
         params.append(gender_filter)
 
-    if salary_min_filter and salary_min_filter > 0:
+    salary_min = filters.get('salary_min')
+    if salary_min and salary_min > 0:
         conditions.append(
-            """(
-                (working_conditions->>'is_negotiable')::boolean = true
-                OR (working_conditions->>'salary_max')::int >= %s
-            )"""
+            "(working_conditions->>'salary_min')::numeric >= %s"
         )
-        params.append(salary_min_filter)
+        params.append(salary_min)
+
+    salary_max = filters.get('salary_max')
+    if salary_max and salary_max > 0:
+        conditions.append(
+            "(working_conditions->>'salary_max')::numeric <= %s"
+        )
+        params.append(salary_max)
+
+    currency = filters.get('currency')
+    if currency:
+        conditions.append(
+            "working_conditions->>'currency' = %s"
+        )
+        params.append(currency)
+
+    is_negotiable = filters.get('is_negotiable')
+    if is_negotiable is not None:
+        val = 'true' if is_negotiable else 'false'
+        conditions.append(
+            "working_conditions->>'is_negotiable' = %s"
+        )
+        params.append(val)
+
+    keyword = filters.get('keyword')
+    if keyword:
+        conditions.append(
+            "(job_title ILIKE %s OR display_content::text ILIKE %s)"
+        )
+        like_str = f"%{keyword}%"
+        params.extend([like_str, like_str])
 
     where = ' AND '.join(conditions)
     query = f"""
@@ -179,8 +209,6 @@ def upsert_match_result(conn, student_id: str, job_id: str,
 def run_matching(payload: dict):
     student_id     = payload.get('student_id')
     filters        = payload.get('filters', {})
-    gender_filter  = filters.get('gender')
-    salary_filter  = filters.get('salary_min')
 
     if not student_id:
         logger.warning('[MatchingWorker] Missing student_id — skipping')
@@ -204,7 +232,7 @@ def run_matching(payload: dict):
         student_major_vec = parse_vector(student.get('major_embedding_str'))
 
         # 2. Fetch candidate jobs (with optional hard filters)
-        jobs = fetch_candidate_jobs(conn, gender_filter, salary_filter)
+        jobs = fetch_candidate_jobs(conn, filters)
         logger.info(f'[MatchingWorker] Student {student_id}: {len(jobs)} candidate jobs after filtering')
 
         if not jobs:
@@ -242,36 +270,67 @@ def run_matching(payload: dict):
         # Sort descending by similarity
         results.sort(key=lambda x: x[2], reverse=True)
 
-        # 4. Save to match_results (upsert)
+        # 4. Save results (to Redis if realtime filter, else to DB)
         elapsed_ms = int((time.time() - t_start) * 1000)
         saved = 0
-        for job, percent, sim, major_sim in results:
-            match_details = {
-                'cosine_score':  round(sim, 4),
-                'major_sim':     round(major_sim, 4),
-                'match_percent': percent,
-                # Location attached for display — NOT used in similarity calc
-                'locations':     job.get('locations_raw', ''),
-                'salary_min':    job.get('salary_min'),
-                'salary_max':    job.get('salary_max'),
-                'currency':      job.get('currency'),
-                'is_negotiable': job.get('is_negotiable'),
-                'source_url':    job.get('source_url'),
-            }
-            try:
-                upsert_match_result(
-                    conn, student_id, job['id'],
-                    percent, elapsed_ms, match_details,
-                )
-                saved += 1
-            except Exception as e:
-                logger.error(f'[MatchingWorker] Upsert failed for job {job["id"]}: {e}')
-                conn.rollback()
+        
+        is_realtime = False
+        if filters and any(v is not None and v != '' and v != 0 for v in filters.values()):
+            is_realtime = True
 
-        conn.commit()
+        if is_realtime:
+            # Save to Redis for 1 hour
+            redis_data = []
+            for job, percent, sim, major_sim in results:
+                redis_data.append({
+                    "job_id": job['id'],
+                    "match_percent": percent,
+                    "model_version": MODEL_VERSION,
+                    "match_details": {
+                        'cosine_score':  round(sim, 4),
+                        'major_sim':     round(major_sim, 4),
+                        'match_percent': percent,
+                        'locations':     job.get('locations_raw', ''),
+                        'salary_min':    job.get('salary_min'),
+                        'salary_max':    job.get('salary_max'),
+                        'currency':      job.get('currency'),
+                        'is_negotiable': job.get('is_negotiable'),
+                        'source_url':    job.get('source_url'),
+                    }
+                })
+            redis_client.set(f"realtime_match:{student_id}", json.dumps(redis_data), ex=3600)
+            saved = len(results)
+            logger.info(f'[MatchingWorker] Saved {saved} results to Redis (realtime_match:{student_id})')
+        else:
+            # Save to match_results DB
+            for job, percent, sim, major_sim in results:
+                match_details = {
+                    'cosine_score':  round(sim, 4),
+                    'major_sim':     round(major_sim, 4),
+                    'match_percent': percent,
+                    # Location attached for display — NOT used in similarity calc
+                    'locations':     job.get('locations_raw', ''),
+                    'salary_min':    job.get('salary_min'),
+                    'salary_max':    job.get('salary_max'),
+                    'currency':      job.get('currency'),
+                    'is_negotiable': job.get('is_negotiable'),
+                    'source_url':    job.get('source_url'),
+                }
+                try:
+                    upsert_match_result(
+                        conn, student_id, job['id'],
+                        percent, elapsed_ms, match_details,
+                    )
+                    saved += 1
+                except Exception as e:
+                    logger.error(f'[MatchingWorker] Upsert failed for job {job["id"]}: {e}')
+                    conn.rollback()
+
+            conn.commit()
+
         total_ms = int((time.time() - t_start) * 1000)
         logger.info(
-            f'[MatchingWorker] ✓ Student {student_id}: {saved}/{len(results)} results saved '
+            f'[MatchingWorker] ✓ Student {student_id}: {saved}/{len(results)} results processed '
             f'| top_score={results[0][1] if results else 0}% | {total_ms}ms'
         )
 

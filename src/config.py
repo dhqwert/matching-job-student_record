@@ -22,6 +22,15 @@ RABBITMQ_CONN           = os.getenv('RABBITMQ_CONN', 'amqp://agi_rabbitmq_user:a
 AI_PROCESSING_QUEUE     = os.getenv('AI_PROCESSING_QUEUE', 'ai_processing_queue')
 MATCH_REQUEST_QUEUE     = os.getenv('MATCH_REQUEST_QUEUE', 'match_request_queue')
 STUDENT_EMBEDDING_QUEUE = os.getenv('STUDENT_EMBEDDING_QUEUE', 'student_embedding_queue')
+JOB_EMBEDDING_QUEUE     = os.getenv('JOB_EMBEDDING_QUEUE', 'job_embedding_queue')
+
+# ── External APIs ────────────────────────────────────────────────────────────
+GLINER_BASE_URL = os.getenv('GLINER_BASE_URL', 'http://localhost:7777')
+BACKEND_API_URL = os.getenv('BACKEND_API_URL', 'http://localhost:3457/api/v1')
+AI_API_KEY      = os.getenv('AI_API_KEY', '')
+
+# ── Redis ────────────────────────────────────────────────────────────────────
+REDIS_CONN = os.getenv('REDIS_CONN', 'redis://localhost:6379/0')
 
 # ── Model config ──────────────────────────────────────────────────────────────
 # GLiNER base model — downloaded once, cached locally
