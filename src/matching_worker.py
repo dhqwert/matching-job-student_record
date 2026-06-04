@@ -34,7 +34,7 @@ import pika
 import psycopg2.extras
 import redis
 
-from config import RABBITMQ_CONN, MATCH_REQUEST_QUEUE, REDIS_CONN
+from config import RABBITMQ_CONN, MATCH_REQUEST_QUEUE, REDIS_CONN, RERANKING_LIMIT
 from db import get_connection
 
 logger = logging.getLogger(__name__)
@@ -246,7 +246,7 @@ def run_matching(payload: dict):
         student_major_vec = parse_vector(student_major_vec_str)
 
         # 2. Fetch candidate jobs (with optional hard filters and pgvector fast retrieval)
-        jobs = fetch_candidate_jobs(conn, filters, student_major_vec_str, limit=200)
+        jobs = fetch_candidate_jobs(conn, filters, student_major_vec_str, limit=RERANKING_LIMIT)
         logger.info(f'[MatchingWorker] Student {student_id}: {len(jobs)} candidate jobs after filtering')
 
         if not jobs:

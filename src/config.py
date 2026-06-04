@@ -23,6 +23,8 @@ AI_PROCESSING_QUEUE     = os.getenv('AI_PROCESSING_QUEUE', 'ai_processing_queue'
 MATCH_REQUEST_QUEUE     = os.getenv('MATCH_REQUEST_QUEUE', 'match_request_queue')
 STUDENT_EMBEDDING_QUEUE = os.getenv('STUDENT_EMBEDDING_QUEUE', 'student_embedding_queue')
 JOB_EMBEDDING_QUEUE     = os.getenv('JOB_EMBEDDING_QUEUE', 'job_embedding_queue')
+# ── Matching ──────────────────────────────────────────────────────────────────
+RERANKING_LIMIT         = int(os.getenv('RERANKING_LIMIT', '200'))
 
 # ── External APIs ────────────────────────────────────────────────────────────
 GLINER_BASE_URL = os.getenv('GLINER_BASE_URL', 'http://localhost:7777')
