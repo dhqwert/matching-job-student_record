@@ -107,18 +107,28 @@ def fetch_candidate_jobs(conn, filters: dict, student_major_vec_str: str = None,
         params.append(gender_filter)
 
     salary_min = filters.get('salary_min')
-    if salary_min and salary_min > 0:
-        conditions.append(
-            "(working_conditions->>'salary_min')::numeric >= %s"
-        )
-        params.append(salary_min)
+    if salary_min:
+        try:
+            val_min = int(salary_min)
+            if val_min > 0:
+                conditions.append(
+                    "(working_conditions->>'salary_min')::numeric >= %s"
+                )
+                params.append(val_min)
+        except (ValueError, TypeError):
+            pass
 
     salary_max = filters.get('salary_max')
-    if salary_max and salary_max > 0:
-        conditions.append(
-            "((working_conditions->>'salary_max')::numeric <= %s AND (working_conditions->>'salary_max')::numeric > 0)"
-        )
-        params.append(salary_max)
+    if salary_max:
+        try:
+            val_max = int(salary_max)
+            if val_max > 0:
+                conditions.append(
+                    "((working_conditions->>'salary_max')::numeric <= %s AND (working_conditions->>'salary_max')::numeric > 0)"
+                )
+                params.append(val_max)
+        except (ValueError, TypeError):
+            pass
 
     currency = filters.get('currency')
     if currency:
@@ -291,8 +301,11 @@ def run_matching(payload: dict):
         if filters and any(v is not None and v != '' and v != 0 for v in filters.values()):
             is_realtime = True
 
+        filter_hash = payload.get('filter_hash', '')
+
         if is_realtime:
             # Save to Redis for 1 hour
+            cache_key = f"realtime_match:{student_id}:{filter_hash}" if filter_hash else f"realtime_match:{student_id}"
             redis_data = []
             for job, percent, sim, major_sim in results:
                 redis_data.append({
@@ -311,9 +324,12 @@ def run_matching(payload: dict):
                         'source_url':    job.get('source_url'),
                     }
                 })
-            redis_client.set(f"realtime_match:{student_id}", json.dumps(redis_data), ex=3600)
+            redis_client.set(cache_key, json.dumps(redis_data), ex=3600)
             saved = len(results)
-            logger.info(f'[MatchingWorker] Saved {saved} results to Redis (realtime_match:{student_id})')
+            logger.info(
+                f'[MatchingWorker] [OK] Student {student_id}: {saved}/{len(results)} '
+                f'results processed | top_score={results[0][1]}% | {elapsed_ms}ms'
+            )
         else:
             # Save to match_results DB
             for job, percent, sim, major_sim in results:
@@ -343,7 +359,7 @@ def run_matching(payload: dict):
 
         total_ms = int((time.time() - t_start) * 1000)
         logger.info(
-            f'[MatchingWorker] ✓ Student {student_id}: {saved}/{len(results)} results processed '
+            f'[MatchingWorker] [OK] Student {student_id}: {saved}/{len(results)} results processed '
             f'| top_score={results[0][1] if results else 0}% | {total_ms}ms'
         )
 
