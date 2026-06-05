@@ -21,6 +21,20 @@ def load_bge(model_name: str, cache_dir: str):
     if _bge_model is not None:
         return _bge_model
 
+    import os
+    
+    # Check if MinIO is configured for BGE (DO THIS BEFORE IMPORTING HEAVY LIBS)
+    MINIO_BUCKET = os.getenv("MINIO_BUCKET")
+    BGE_MINIO_PREFIX = os.getenv("BGE_MINIO_PREFIX", "")
+    
+    if MINIO_BUCKET:
+        from s3_downloader import download_model_from_minio
+        local_dir_name = BGE_MINIO_PREFIX.replace('/', '_') if BGE_MINIO_PREFIX else MINIO_BUCKET
+        local_bge_dir = os.path.join(cache_dir, local_dir_name)
+        success = download_model_from_minio(MINIO_BUCKET, BGE_MINIO_PREFIX, local_bge_dir)
+        if success:
+            model_name = local_bge_dir
+
     from FlagEmbedding import BGEM3FlagModel
     os.makedirs(cache_dir, exist_ok=True)
 
