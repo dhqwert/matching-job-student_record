@@ -139,7 +139,7 @@ def fetch_candidate_jobs(conn, filters: dict, student_major_vec_str: str = None,
     keyword = filters.get('keyword')
     if keyword:
         conditions.append(
-            "(basic_info->>'job_title' ILIKE %s OR display_content::text ILIKE %s)"
+            "(basic_info->>'raw_title' ILIKE %s OR display_content::text ILIKE %s)"
         )
         like_str = f"%{keyword}%"
         params.extend([like_str, like_str])
@@ -157,7 +157,7 @@ def fetch_candidate_jobs(conn, filters: dict, student_major_vec_str: str = None,
         
     query = f"""
         SELECT id,
-               basic_info->>'job_title' AS job_title,
+               basic_info->>'raw_title' AS job_title,
                professional_embedding::text AS embedding_str,
                major_embedding::text AS major_embedding_str,
                basic_info->>'locations'     AS locations_raw,
