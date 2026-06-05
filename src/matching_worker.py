@@ -116,7 +116,7 @@ def fetch_candidate_jobs(conn, filters: dict, student_major_vec_str: str = None,
     salary_max = filters.get('salary_max')
     if salary_max and salary_max > 0:
         conditions.append(
-            "(working_conditions->>'salary_max')::numeric <= %s"
+            "((working_conditions->>'salary_max')::numeric <= %s AND (working_conditions->>'salary_max')::numeric > 0)"
         )
         params.append(salary_max)
 
