@@ -26,6 +26,7 @@ match_results schema (từ entity):
   student_id, job_id, match_percent (int 0-100),
   model_version, processing_time_ms, match_details (jsonb)
 """
+import os
 import json
 import time
 import logging
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 # Initialize Redis client
 redis_client = redis.from_url(REDIS_CONN)
 
-MODEL_VERSION = 'v2-bge-m3'
+MODEL_VERSION = os.getenv('MODEL_VERSION', 'v2-bge-m3')
 
 
 # ── Vector math ────────────────────────────────────────────────────────────────
