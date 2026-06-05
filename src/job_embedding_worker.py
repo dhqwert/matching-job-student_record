@@ -68,6 +68,16 @@ def process_message(bge_model, payload: dict):
 
     if not skill_exp_text:
         logger.warning(f'[JobEmbeddingWorker] No skill/experience for job {job_id}')
+        conn = get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE job_postings SET status = 'DONE' WHERE id = %s", (job_id,))
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            conn.rollback()
+        finally:
+            conn.close()
         return
 
     prof_embedding = generate_embedding(bge_model, skill_exp_text)
@@ -75,6 +85,16 @@ def process_message(bge_model, payload: dict):
 
     if prof_embedding is None:
         logger.warning(f'[JobEmbeddingWorker] Empty professional text, skipping job {job_id}')
+        conn = get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE job_postings SET status = 'DONE' WHERE id = %s", (job_id,))
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            conn.rollback()
+        finally:
+            conn.close()
         return
 
     save_embeddings_to_db(job_id, prof_embedding, major_embedding)
