@@ -35,15 +35,13 @@ import pika
 import psycopg2.extras
 import redis
 
-from config import RABBITMQ_CONN, MATCH_REQUEST_QUEUE, REDIS_CONN, RERANKING_LIMIT
+from config import RABBITMQ_CONN, MATCH_REQUEST_QUEUE, REDIS_CONN, RERANKING_LIMIT, MODEL_VERSION
 from db import get_connection
 
 logger = logging.getLogger(__name__)
 
 # Initialize Redis client
 redis_client = redis.from_url(REDIS_CONN)
-
-MODEL_VERSION = os.getenv('MODEL_VERSION', 'v2-bge-m3')
 
 
 # ── Vector math ────────────────────────────────────────────────────────────────

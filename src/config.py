@@ -41,6 +41,8 @@ GLINER_MODEL_NAME = os.getenv('GLINER_MODEL_NAME', 'urchade/gliner_base')
 # BGE-M3 embedding model — downloaded once, cached locally
 BGE_MODEL_NAME    = os.getenv('BGE_MODEL_NAME', 'BAAI/bge-m3')
 
+MODEL_VERSION     = os.getenv('MODEL_VERSION', 'JobCare-v1')
+
 # Local cache dir — models live here permanently, no re-download on restart
 MODEL_CACHE_DIR   = os.path.abspath(os.getenv('MODEL_CACHE_DIR', './model_cache'))
 
